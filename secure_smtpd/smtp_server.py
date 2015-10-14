@@ -4,7 +4,7 @@ import ssl, smtpd, asyncore, socket, logging, signal, time, sys
 from .smtp_channel import SMTPChannel
 from asyncore import ExitNow
 from .process_pool import ProcessPool
-from ssl import SSLError
+from ssl import SSLError, SSLContext
 try:
     from Queue import Empty
 except ImportError:
@@ -13,7 +13,7 @@ except ImportError:
 
 class SMTPServer(smtpd.SMTPServer):
 
-    def __init__(self, localaddr, remoteaddr, ssl=False, certfile=None, keyfile=None, context=None, ssl_version=ssl.PROTOCOL_SSLv23, require_authentication=False, credential_validator=None, maximum_execution_time=30, process_count=5):
+    def __init__(self, localaddr, remoteaddr, ssl=False, certfile=None, keyfile=None, ssl_version=ssl.PROTOCOL_SSLv23, require_authentication=False, credential_validator=None, maximum_execution_time=30, process_count=5):
         smtpd.SMTPServer.__init__(self, localaddr, remoteaddr)
         self.logger = logging.getLogger( secure_smtpd.LOG_NAME )
         self.certfile = certfile
@@ -26,7 +26,8 @@ class SMTPServer(smtpd.SMTPServer):
         self.maximum_execution_time = maximum_execution_time
         self.process_count = process_count
         self.process_pool = None
-        self.context = context
+        self.context = SSLContext(ssl_version)
+        self.context.load_cert_chain(certfile=certfile, keyfile=keyfile)
 
     def handle_accept(self):
         self.process_pool = ProcessPool(self._accept_subprocess, process_count=self.process_count)
@@ -47,19 +48,10 @@ class SMTPServer(smtpd.SMTPServer):
                     newsocket.settimeout(self.maximum_execution_time)
 
                     if self.ssl:
-                        if self.context:
-                            newsocket = self.context.wrap_socket(
-                                newsocket,
-                                server_side=True,
-                            )
-                        else:
-                            newsocket = ssl.wrap_socket(
-                                newsocket,
-                                server_side=True,
-                                certfile=self.certfile,
-                                keyfile=self.keyfile,
-                                ssl_version=self.ssl_version,
-                            )
+                        newsocket = self.context.wrap_socket(
+                            newsocket,
+                            server_side=True,
+                        )
                     channel = SMTPChannel(
                         self,
                         newsocket,
